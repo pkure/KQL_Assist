@@ -1,0 +1,643 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>KQL Assist — Defender Advanced Hunting</title>
+<style>
+  :root{
+    --ink:#0e151f;
+    --ink-2:#121b27;
+    --panel:#16212f;
+    --panel-2:#1b2838;
+    --line:#26384c;
+    --line-soft:#1f2e40;
+    --txt:#e7eef6;
+    --muted:#8aa0b8;
+    --muted-2:#647c95;
+    --azure:#5cc2ff;     /* keywords / interactive */
+    --violet:#c79bff;    /* functions */
+    --sand:#ecc06b;      /* string literals */
+    --mint:#6fe3b0;      /* table name / good */
+    --dim:#5e7790;       /* placeholder */
+    --focus:#5cc2ff;
+    --radius:10px;
+    --mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
+    --ui:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:
+      radial-gradient(1200px 600px at 85% -10%, #1a2940 0%, transparent 55%),
+      var(--ink);
+    color:var(--txt);
+    font-family:var(--ui);
+    font-size:15px;
+    line-height:1.5;
+    -webkit-font-smoothing:antialiased;
+    min-height:100vh;
+  }
+  a{color:var(--azure)}
+
+  .wrap{max-width:1240px;margin:0 auto;padding:22px 18px 80px}
+
+  header.head{display:flex;align-items:flex-end;gap:14px;flex-wrap:wrap;
+    padding-bottom:16px;margin-bottom:18px;border-bottom:1px solid var(--line-soft)}
+  .mark{font-family:var(--mono);font-size:11px;letter-spacing:.32em;text-transform:uppercase;
+    color:var(--azure);display:block;margin-bottom:6px}
+  h1{font-size:23px;font-weight:650;letter-spacing:-.01em;margin:0}
+  .sub{color:var(--muted);font-size:13px;margin:3px 0 0}
+  .head .spacer{flex:1}
+
+  .grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,420px);gap:22px;align-items:start}
+  @media (max-width:900px){ .grid{grid-template-columns:1fr} }
+
+  /* ---- cards / controls ---- */
+  .card{background:var(--panel);border:1px solid var(--line-soft);border-radius:var(--radius);
+    margin-bottom:16px;overflow:hidden}
+  .card > .ttl{display:flex;align-items:center;gap:10px;padding:13px 16px;
+    border-bottom:1px solid var(--line-soft);background:var(--ink-2)}
+  .ttl .num{font-family:var(--mono);font-size:11px;color:var(--muted-2);
+    border:1px solid var(--line);border-radius:5px;padding:2px 6px;letter-spacing:.05em}
+  .ttl h2{font-size:13px;font-weight:600;margin:0;letter-spacing:.01em}
+  .ttl .hint{margin-left:auto;font-size:12px;color:var(--muted-2)}
+  .body{padding:15px 16px}
+
+  label.fld{display:block;font-size:11px;letter-spacing:.06em;text-transform:uppercase;
+    color:var(--muted);margin:0 0 6px}
+
+  select,input[type=text],input[type=number],input[type=datetime-local]{
+    width:100%;background:var(--ink-2);color:var(--txt);border:1px solid var(--line);
+    border-radius:8px;padding:9px 10px;font-family:var(--ui);font-size:14px;outline:none}
+  select{appearance:none;background-image:linear-gradient(45deg,transparent 50%,var(--muted) 50%),
+    linear-gradient(135deg,var(--muted) 50%,transparent 50%);
+    background-position:calc(100% - 16px) 50%,calc(100% - 11px) 50%;
+    background-size:5px 5px,5px 5px;background-repeat:no-repeat;padding-right:30px;cursor:pointer}
+  input::placeholder{color:var(--muted-2)}
+  select:focus,input:focus{border-color:var(--focus);box-shadow:0 0 0 2px rgba(92,194,255,.22)}
+
+  .source-row{display:flex;gap:10px;flex-wrap:wrap}
+  .source-row .one{flex:1;min-width:200px}
+  .src-desc{margin-top:10px;font-size:12.5px;color:var(--muted);line-height:1.45}
+
+  /* time */
+  .chips{display:flex;flex-wrap:wrap;gap:8px}
+  .chip{position:relative}
+  .chip input{position:absolute;opacity:0;inset:0;cursor:pointer}
+  .chip span{display:block;padding:7px 13px;border:1px solid var(--line);border-radius:999px;
+    font-size:13px;color:var(--muted);background:var(--ink-2);cursor:pointer;user-select:none;
+    transition:border-color .12s,color .12s,background .12s}
+  .chip input:checked + span{border-color:var(--azure);color:var(--azure);
+    background:rgba(92,194,255,.10)}
+  .chip input:focus-visible + span{box-shadow:0 0 0 2px rgba(92,194,255,.4)}
+  .time-custom{margin-top:12px;display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end}
+  .time-custom .one{flex:1;min-width:120px}
+  .time-custom.abs .one{min-width:200px}
+  .note{font-size:11.5px;color:var(--muted-2);margin-top:8px}
+
+  /* filters */
+  .filter-row{display:grid;grid-template-columns:130px 110px 1fr;gap:8px;margin-bottom:9px;align-items:center}
+  .filter-row.enum{grid-template-columns:130px 1fr}
+  .filter-row .fname{font-family:var(--mono);font-size:12.5px;color:var(--txt);
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  @media (max-width:560px){
+    .filter-row,.filter-row.enum{grid-template-columns:1fr;gap:5px;
+      padding:10px;border:1px solid var(--line-soft);border-radius:8px}
+    .filter-row .fname{font-size:13px;color:var(--azure)}
+  }
+  select.op{font-size:12.5px;padding:8px 26px 8px 9px;color:var(--muted)}
+
+  /* columns */
+  .col-tools{display:flex;gap:8px;margin-bottom:12px}
+  .btn-mini{background:var(--ink-2);border:1px solid var(--line);color:var(--muted);
+    font-size:12px;padding:5px 11px;border-radius:7px;cursor:pointer;font-family:var(--ui)}
+  .btn-mini:hover{border-color:var(--azure);color:var(--azure)}
+  .cols{display:grid;grid-template-columns:repeat(auto-fill,minmax(155px,1fr));gap:7px 10px}
+  .cb{display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:12.5px;
+    color:var(--muted);cursor:pointer;padding:3px 2px;user-select:none}
+  .cb input{appearance:none;width:15px;height:15px;border:1px solid var(--line);border-radius:4px;
+    background:var(--ink-2);cursor:pointer;flex:none;position:relative}
+  .cb input:checked{background:var(--azure);border-color:var(--azure)}
+  .cb input:checked::after{content:"";position:absolute;left:4px;top:1px;width:4px;height:8px;
+    border:solid var(--ink);border-width:0 2px 2px 0;transform:rotate(45deg)}
+  .cb input:focus-visible{box-shadow:0 0 0 2px rgba(92,194,255,.4)}
+  .cb input:checked + .cn{color:var(--txt)}
+
+  /* output options */
+  .opt-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  @media (max-width:560px){ .opt-grid{grid-template-columns:1fr} }
+  .toggle{display:flex;align-items:center;gap:9px;font-size:13px;color:var(--muted);cursor:pointer}
+  .toggle input{appearance:none;width:36px;height:20px;border-radius:999px;background:var(--line);
+    position:relative;cursor:pointer;flex:none;transition:background .15s}
+  .toggle input::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;
+    border-radius:50%;background:var(--muted);transition:transform .15s,background .15s}
+  .toggle input:checked{background:rgba(92,194,255,.4)}
+  .toggle input:checked::after{transform:translateX(16px);background:var(--azure)}
+  .toggle input:focus-visible{box-shadow:0 0 0 2px rgba(92,194,255,.4)}
+  .summarize-by{margin-top:12px}
+
+  /* ---- output panel (signature) ---- */
+  .out{position:sticky;top:18px}
+  .out-card{background:var(--ink-2);border:1px solid var(--line);border-radius:var(--radius);overflow:hidden}
+  .out-bar{display:flex;align-items:center;gap:10px;padding:11px 14px;
+    background:linear-gradient(180deg,#1d2b3d,#152030);border-bottom:1px solid var(--line)}
+  .dots{display:flex;gap:6px}
+  .dots i{width:10px;height:10px;border-radius:50%;display:block}
+  .dots i:nth-child(1){background:#ff6058}.dots i:nth-child(2){background:#ffbd2e}.dots i:nth-child(3){background:#28c93f}
+  .out-bar .lbl{font-family:var(--mono);font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--muted-2)}
+  .out-bar .lines{margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--muted-2)}
+  pre.query{margin:0;padding:16px;font-family:var(--mono);font-size:13px;line-height:1.62;
+    white-space:pre-wrap;word-break:break-word;overflow-x:auto;min-height:120px;max-height:48vh;overflow-y:auto}
+  .actions{display:flex;gap:9px;padding:12px 14px;border-top:1px solid var(--line);background:var(--ink-2)}
+  .btn{flex:1;border:none;border-radius:8px;padding:11px;font-size:13.5px;font-weight:600;
+    cursor:pointer;font-family:var(--ui);transition:filter .12s,background .12s}
+  .btn.primary{background:var(--azure);color:#06121d}
+  .btn.primary:hover{filter:brightness(1.08)}
+  .btn.ghost{flex:0 0 auto;background:var(--ink);color:var(--muted);border:1px solid var(--line)}
+  .btn.ghost:hover{color:var(--azure);border-color:var(--azure)}
+  .btn:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+  .copied{color:var(--mint)!important}
+
+  .portal-tip{margin-top:12px;font-size:12px;color:var(--muted-2);line-height:1.5}
+  .portal-tip code{font-family:var(--mono);color:var(--muted);font-size:11.5px}
+
+  /* KQL syntax colors */
+  .k-table{color:var(--mint);font-weight:600}
+  .k-pipe{color:var(--muted-2)}
+  .k-kw{color:var(--azure)}
+  .k-fn{color:var(--violet)}
+  .k-str{color:var(--sand)}
+  .k-num{color:#f0a39a}
+  .k-op{color:var(--muted)}
+
+  @media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="head">
+    <div>
+      <span class="mark">Kusto · Advanced Hunting</span>
+      <h1>KQL Assist</h1>
+      <p class="sub">Click your way to a paste-ready query for Microsoft Defender / Sentinel.</p>
+    </div>
+  </header>
+
+  <div class="grid">
+    <!-- LEFT: controls -->
+    <div class="controls">
+
+      <section class="card">
+        <div class="ttl"><span class="num">01</span><h2>Data source</h2><span class="hint">what you're hunting in</span></div>
+        <div class="body">
+          <div class="source-row">
+            <div class="one">
+              <label class="fld" for="source">Table</label>
+              <select id="source"></select>
+            </div>
+          </div>
+          <p class="src-desc" id="srcDesc"></p>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="ttl"><span class="num">02</span><h2>Time range</h2><span class="hint">scopes cost &amp; noise</span></div>
+        <div class="body">
+          <div class="chips" id="timeChips">
+            <label class="chip"><input type="radio" name="time" value="1h"><span>1 hour</span></label>
+            <label class="chip"><input type="radio" name="time" value="24h"><span>24 hours</span></label>
+            <label class="chip"><input type="radio" name="time" value="7d" checked><span>7 days</span></label>
+            <label class="chip"><input type="radio" name="time" value="30d"><span>30 days</span></label>
+            <label class="chip"><input type="radio" name="time" value="rel"><span>Custom ago()</span></label>
+            <label class="chip"><input type="radio" name="time" value="abs"><span>Exact window</span></label>
+          </div>
+          <div class="time-custom" id="relBox" hidden>
+            <div class="one"><label class="fld">Last</label><input type="number" id="relN" value="14" min="1"></div>
+            <div class="one"><label class="fld">Unit</label>
+              <select id="relUnit"><option value="m">minutes</option><option value="h">hours</option><option value="d" selected>days</option></select>
+            </div>
+          </div>
+          <div class="time-custom abs" id="absBox" hidden>
+            <div class="one"><label class="fld">From (UTC)</label><input type="datetime-local" id="absFrom"></div>
+            <div class="one"><label class="fld">To (UTC)</label><input type="datetime-local" id="absTo"></div>
+          </div>
+          <p class="note">Tip: hunts run fastest and cheapest when the window is tight. Start narrow, widen if you find nothing.</p>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="ttl"><span class="num">03</span><h2>Filters</h2><span class="hint">leave blank to skip</span></div>
+        <div class="body" id="filters"></div>
+      </section>
+
+      <section class="card">
+        <div class="ttl"><span class="num">04</span><h2>Columns to keep</h2><span class="hint">project away the rest</span></div>
+        <div class="body">
+          <div class="col-tools">
+            <button class="btn-mini" id="colAll" type="button">Select all</button>
+            <button class="btn-mini" id="colNone" type="button">Clear</button>
+            <button class="btn-mini" id="colReset" type="button">Reset defaults</button>
+          </div>
+          <div class="cols" id="cols"></div>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="ttl"><span class="num">05</span><h2>Output</h2><span class="hint">records or counts</span></div>
+        <div class="body">
+          <div class="opt-grid">
+            <label class="toggle"><input type="checkbox" id="optSort" checked> Sort newest first</label>
+            <div>
+              <label class="fld" for="optLimit">Row limit (take)</label>
+              <input type="number" id="optLimit" value="100" min="1">
+            </div>
+          </div>
+          <div style="margin-top:14px">
+            <label class="toggle"><input type="checkbox" id="optSummarize"> Summarize: count by field</label>
+            <div class="summarize-by" id="sumBox" hidden>
+              <label class="fld" for="sumField">Group by</label>
+              <select id="sumField"></select>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <!-- RIGHT: output -->
+    <div class="out">
+      <div class="out-card">
+        <div class="out-bar">
+          <div class="dots"><i></i><i></i><i></i></div>
+          <span class="lbl">query.kql</span>
+          <span class="lines" id="lineCount"></span>
+        </div>
+        <pre class="query" id="query"></pre>
+        <div class="actions">
+          <button class="btn primary" id="copyBtn" type="button">Copy query</button>
+          <button class="btn ghost" id="resetBtn" type="button">Reset</button>
+        </div>
+      </div>
+      <p class="portal-tip">Paste into <strong>Defender → Hunting → Advanced hunting</strong> (or Sentinel Logs). Timestamps are <code>UTC</code>. Adjust generated <code>ago()</code> / <code>take</code> as needed.</p>
+    </div>
+  </div>
+</div>
+
+<script>
+"use strict";
+
+/* ---------- schema config ----------
+   Each source: filters [{field, label?, kind:'text'|'enum'|'ip', enum:[...] }]
+   columns: [{n:name, d:defaultChecked}]
+   Common text operators apply to kind:'text'. */
+const TEXT_OPS = ["contains","==","!=","has","startswith","endswith","in"];
+
+const SOURCES = {
+  DeviceLogonEvents:{cat:"Endpoint", desc:"Sign-ins observed on devices (interactive, network, RDP, service). Best for lateral-movement, brute-force and suspicious-logon hunts.",
+    filters:[
+      {field:"AccountName",kind:"text"},{field:"AccountDomain",kind:"text"},
+      {field:"DeviceName",kind:"text"},{field:"RemoteIP",kind:"ip"},
+      {field:"RemoteDeviceName",kind:"text"},
+      {field:"ActionType",kind:"enum",enum:["LogonSuccess","LogonFailed","LogonAttempted"]},
+      {field:"LogonType",kind:"enum",enum:["Interactive","RemoteInteractive","Network","Batch","Service","Unlock","NetworkCleartext","CachedInteractive"]},
+      {field:"InitiatingProcessFileName",kind:"text"}
+    ],
+    columns:[["Timestamp",1],["DeviceName",1],["ActionType",1],["AccountDomain",1],["AccountName",1],["LogonType",1],["RemoteIP",1],["RemoteDeviceName",1],["FailureReason",1],["Protocol",0],["IsLocalAdmin",0],["InitiatingProcessFileName",0],["InitiatingProcessCommandLine",0],["ReportId",0]]},
+
+  DeviceProcessEvents:{cat:"Endpoint", desc:"Process creations with full command lines and hashes. The workhorse table for execution, LOLBins and parent/child analysis.",
+    filters:[
+      {field:"DeviceName",kind:"text"},{field:"AccountName",kind:"text"},
+      {field:"FileName",kind:"text"},{field:"ProcessCommandLine",kind:"text"},
+      {field:"FolderPath",kind:"text"},{field:"SHA256",kind:"text"},
+      {field:"InitiatingProcessFileName",kind:"text"},{field:"InitiatingProcessCommandLine",kind:"text"}
+    ],
+    columns:[["Timestamp",1],["DeviceName",1],["AccountName",1],["FileName",1],["FolderPath",1],["ProcessCommandLine",1],["SHA256",1],["InitiatingProcessFileName",1],["InitiatingProcessCommandLine",1],["InitiatingProcessParentFileName",1],["ProcessId",0],["InitiatingProcessAccountName",0],["MD5",0],["SHA1",0],["ReportId",0]]},
+
+  DeviceNetworkEvents:{cat:"Endpoint", desc:"Outbound/inbound network connections per process. Use for C2, beaconing, suspicious-domain and exfil hunts.",
+    filters:[
+      {field:"DeviceName",kind:"text"},{field:"RemoteIP",kind:"ip"},
+      {field:"RemoteUrl",kind:"text"},{field:"RemotePort",kind:"text"},
+      {field:"ActionType",kind:"enum",enum:["ConnectionSuccess","ConnectionFailed","ConnectionRequest","InboundConnectionAccepted","ConnectionFound","ListeningConnectionCreated"]},
+      {field:"InitiatingProcessFileName",kind:"text"},{field:"InitiatingProcessCommandLine",kind:"text"}
+    ],
+    columns:[["Timestamp",1],["DeviceName",1],["ActionType",1],["RemoteIP",1],["RemotePort",1],["RemoteUrl",1],["LocalIP",1],["Protocol",1],["LocalPort",0],["InitiatingProcessFileName",1],["InitiatingProcessCommandLine",1],["InitiatingProcessAccountName",0],["ReportId",0]]},
+
+  DeviceFileEvents:{cat:"Endpoint", desc:"File create/modify/delete/rename with hashes and origin URL. Good for dropper, staging and download hunts.",
+    filters:[
+      {field:"DeviceName",kind:"text"},{field:"FileName",kind:"text"},
+      {field:"FolderPath",kind:"text"},{field:"SHA256",kind:"text"},
+      {field:"ActionType",kind:"enum",enum:["FileCreated","FileModified","FileDeleted","FileRenamed"]},
+      {field:"InitiatingProcessFileName",kind:"text"},{field:"InitiatingProcessAccountName",kind:"text"}
+    ],
+    columns:[["Timestamp",1],["DeviceName",1],["ActionType",1],["FileName",1],["FolderPath",1],["SHA256",1],["InitiatingProcessFileName",1],["InitiatingProcessCommandLine",1],["InitiatingProcessAccountName",1],["FileOriginUrl",0],["SHA1",0],["MD5",0],["ReportId",0]]},
+
+  DeviceRegistryEvents:{cat:"Endpoint", desc:"Registry key/value changes. Use for persistence (Run keys, services) and defense-evasion hunts.",
+    filters:[
+      {field:"DeviceName",kind:"text"},{field:"RegistryKey",kind:"text"},
+      {field:"RegistryValueName",kind:"text"},
+      {field:"ActionType",kind:"enum",enum:["RegistryKeyCreated","RegistryKeyDeleted","RegistryValueSet","RegistryValueDeleted","RegistryKeyRenamed"]},
+      {field:"InitiatingProcessFileName",kind:"text"}
+    ],
+    columns:[["Timestamp",1],["DeviceName",1],["ActionType",1],["RegistryKey",1],["RegistryValueName",1],["RegistryValueData",1],["PreviousRegistryKey",0],["InitiatingProcessFileName",1],["InitiatingProcessCommandLine",1],["InitiatingProcessAccountName",0],["ReportId",0]]},
+
+  DeviceImageLoadEvents:{cat:"Endpoint", desc:"DLL / image loads. Useful for DLL side-loading and injection hunts.",
+    filters:[
+      {field:"DeviceName",kind:"text"},{field:"FileName",kind:"text"},
+      {field:"FolderPath",kind:"text"},{field:"SHA256",kind:"text"},
+      {field:"InitiatingProcessFileName",kind:"text"}
+    ],
+    columns:[["Timestamp",1],["DeviceName",1],["FileName",1],["FolderPath",1],["SHA256",1],["InitiatingProcessFileName",1],["InitiatingProcessCommandLine",1],["InitiatingProcessAccountName",0],["ReportId",0]]},
+
+  DeviceEvents:{cat:"Endpoint", desc:"Catch-all for special sensor events (AMSI, WMI, scheduled tasks, etc.). Filter by ActionType when you know the event name.",
+    filters:[
+      {field:"DeviceName",kind:"text"},{field:"ActionType",kind:"text"},
+      {field:"FileName",kind:"text"},{field:"RemoteIP",kind:"ip"},
+      {field:"RemoteUrl",kind:"text"},{field:"InitiatingProcessFileName",kind:"text"}
+    ],
+    columns:[["Timestamp",1],["DeviceName",1],["ActionType",1],["FileName",1],["FolderPath",1],["RemoteIP",1],["RemoteUrl",1],["InitiatingProcessFileName",1],["InitiatingProcessCommandLine",1],["AccountName",0],["ReportId",0]]},
+
+  IdentityLogonEvents:{cat:"Identity", desc:"Authentications seen by Defender for Identity (on-prem AD / hybrid). Good for Kerberos/NTLM and account-targeting hunts.",
+    filters:[
+      {field:"AccountName",kind:"text"},{field:"AccountUpn",kind:"text"},
+      {field:"AccountDomain",kind:"text"},{field:"DeviceName",kind:"text"},
+      {field:"IPAddress",kind:"ip"},
+      {field:"ActionType",kind:"enum",enum:["LogonSuccess","LogonFailed"]},
+      {field:"Application",kind:"text"},{field:"Protocol",kind:"text"}
+    ],
+    columns:[["Timestamp",1],["ActionType",1],["Application",1],["LogonType",1],["AccountDisplayName",1],["AccountUpn",1],["AccountDomain",1],["DeviceName",1],["IPAddress",1],["Location",1],["FailureReason",1],["Protocol",0],["Port",0],["ReportId",0]]},
+
+  AADSignInEventsBeta:{cat:"Identity", desc:"Microsoft Entra ID interactive sign-ins. Best for impossible-travel, MFA-failure and risky-sign-in hunts.",
+    filters:[
+      {field:"AccountUpn",kind:"text"},{field:"AccountDisplayName",kind:"text"},
+      {field:"IPAddress",kind:"ip"},{field:"Application",kind:"text"},
+      {field:"ErrorCode",kind:"text"},{field:"Country",kind:"text"},
+      {field:"ClientAppUsed",kind:"text"},
+      {field:"ConditionalAccessStatus",kind:"enum",enum:["success","failure","notApplied"]}
+    ],
+    columns:[["Timestamp",1],["AccountDisplayName",1],["AccountUpn",1],["Application",1],["IPAddress",1],["Country",1],["City",1],["ErrorCode",1],["ClientAppUsed",1],["UserAgent",1],["ConditionalAccessStatus",1],["RiskLevelDuringSignIn",0],["DeviceName",0],["OSPlatform",0],["ReportId",0]]},
+
+  EmailEvents:{cat:"Email", desc:"Mail flow seen by Defender for Office 365. Use for phishing, malicious-sender and delivery-action hunts.",
+    filters:[
+      {field:"SenderFromAddress",kind:"text"},{field:"RecipientEmailAddress",kind:"text"},
+      {field:"Subject",kind:"text"},{field:"SenderDisplayName",kind:"text"},
+      {field:"EmailDirection",kind:"enum",enum:["Inbound","Outbound","Intra-org"]},
+      {field:"DeliveryAction",kind:"enum",enum:["Delivered","Blocked","Junked","Replaced"]},
+      {field:"ThreatTypes",kind:"text"},{field:"SenderIPv4",kind:"ip"}
+    ],
+    columns:[["Timestamp",1],["NetworkMessageId",1],["SenderFromAddress",1],["RecipientEmailAddress",1],["Subject",1],["EmailDirection",1],["DeliveryAction",1],["DeliveryLocation",1],["ThreatTypes",1],["AttachmentCount",0],["UrlCount",0],["SenderIPv4",0],["SenderDisplayName",0]]},
+
+  CloudAppEvents:{cat:"Cloud", desc:"Activities across cloud apps via Defender for Cloud Apps. Good for OAuth abuse, mass-download and admin-action hunts.",
+    filters:[
+      {field:"AccountDisplayName",kind:"text"},{field:"Application",kind:"text"},
+      {field:"ActionType",kind:"text"},{field:"IPAddress",kind:"ip"},
+      {field:"CountryCode",kind:"text"}
+    ],
+    columns:[["Timestamp",1],["ActionType",1],["Application",1],["AccountDisplayName",1],["IPAddress",1],["CountryCode",1],["City",1],["ISP",1],["UserAgent",1],["ReportId",0]]},
+
+  AlertInfo:{cat:"Alerts", desc:"One row per alert across all Defender workloads. Pivot here to scope an incident, then join AlertEvidence for entities.",
+    filters:[
+      {field:"Title",kind:"text"},
+      {field:"Severity",kind:"enum",enum:["Informational","Low","Medium","High"]},
+      {field:"Category",kind:"text"},{field:"ServiceSource",kind:"text"},
+      {field:"DetectionSource",kind:"text"}
+    ],
+    columns:[["Timestamp",1],["AlertId",1],["Title",1],["Severity",1],["Category",1],["ServiceSource",1],["DetectionSource",1],["AttackTechniques",1]]}
+};
+
+const CAT_ORDER = ["Endpoint","Identity","Email","Cloud","Alerts"];
+
+/* ---------- state ---------- */
+let state = { source:"DeviceLogonEvents", filters:{}, cols:{} };
+
+/* ---------- helpers ---------- */
+const $ = id => document.getElementById(id);
+function esc(v){ return String(v).replace(/\\/g,"\\\\").replace(/"/g,'\\"'); }
+function isNumeric(v){ return /^-?\d+$/.test(v.trim()); }
+
+/* ---------- build source dropdown ---------- */
+function buildSources(){
+  const sel = $("source");
+  CAT_ORDER.forEach(cat=>{
+    const og = document.createElement("optgroup"); og.label = cat;
+    Object.keys(SOURCES).filter(k=>SOURCES[k].cat===cat).forEach(k=>{
+      const o = document.createElement("option"); o.value=k; o.textContent=k; og.appendChild(o);
+    });
+    sel.appendChild(og);
+  });
+  sel.value = state.source;
+}
+
+/* ---------- render filters for current source ---------- */
+function renderFilters(){
+  const host = $("filters"); host.innerHTML=""; state.filters={};
+  const src = SOURCES[state.source];
+  src.filters.forEach((f,i)=>{
+    const row = document.createElement("div");
+    const name = document.createElement("span"); name.className="fname"; name.textContent=f.field;
+
+    if(f.kind==="enum"){
+      row.className="filter-row enum";
+      const sel = document.createElement("select");
+      const blank=document.createElement("option"); blank.value=""; blank.textContent="— any —"; sel.appendChild(blank);
+      f.enum.forEach(v=>{ const o=document.createElement("option"); o.value=v; o.textContent=v; sel.appendChild(o); });
+      sel.addEventListener("change",()=>{ state.filters[f.field]={kind:"enum",val:sel.value}; render(); });
+      row.append(name, sel);
+    } else if(f.kind==="ip"){
+      row.className="filter-row";
+      const op=document.createElement("select"); op.className="op";
+      ["auto","==","!=","contains"].forEach(o=>{ const e=document.createElement("option"); e.value=o; e.textContent=o; op.appendChild(e); });
+      const inp=document.createElement("input"); inp.type="text"; inp.placeholder="10.0.0.0/24 or 1.2.3.4";
+      const upd=()=>{ state.filters[f.field]={kind:"ip",op:op.value,val:inp.value}; render(); };
+      op.addEventListener("change",upd); inp.addEventListener("input",upd);
+      row.append(name, op, inp);
+    } else {
+      row.className="filter-row";
+      const op=document.createElement("select"); op.className="op";
+      TEXT_OPS.forEach(o=>{ const e=document.createElement("option"); e.value=o; e.textContent=o; op.appendChild(e); });
+      op.value="contains";
+      const inp=document.createElement("input"); inp.type="text";
+      inp.placeholder = f.field.toLowerCase().includes("command")||f.field==="Subject" ? "text to match…" : "value…";
+      const upd=()=>{ state.filters[f.field]={kind:"text",op:op.value,val:inp.value}; render(); };
+      op.addEventListener("change",upd); inp.addEventListener("input",upd);
+      row.append(name, op, inp);
+    }
+    host.appendChild(row);
+  });
+}
+
+/* ---------- render columns ---------- */
+function renderColumns(useDefaults){
+  const host=$("cols"); host.innerHTML="";
+  const src=SOURCES[state.source];
+  if(useDefaults){ state.cols={}; src.columns.forEach(([n,d])=> state.cols[n]=!!d); }
+  src.columns.forEach(([n])=>{
+    const lab=document.createElement("label"); lab.className="cb";
+    const cb=document.createElement("input"); cb.type="checkbox"; cb.checked=!!state.cols[n];
+    cb.addEventListener("change",()=>{ state.cols[n]=cb.checked; render(); });
+    const sp=document.createElement("span"); sp.className="cn"; sp.textContent=n;
+    lab.append(cb,sp); host.appendChild(lab);
+  });
+  // summarize field options
+  const sf=$("sumField"); sf.innerHTML="";
+  src.columns.forEach(([n])=>{ if(n==="Timestamp")return; const o=document.createElement("option"); o.value=n;o.textContent=n; sf.appendChild(o); });
+}
+
+/* ---------- time clause ---------- */
+function timeClause(){
+  const mode=document.querySelector('input[name="time"]:checked').value;
+  if(mode==="rel"){
+    const n=Math.max(1,parseInt($("relN").value||"1",10)); const u=$("relUnit").value;
+    return `| where Timestamp > ago(${n}${u})`;
+  }
+  if(mode==="abs"){
+    const f=$("absFrom").value, t=$("absTo").value;
+    if(f&&t) return `| where Timestamp between (datetime(${f.replace("T"," ")}) .. datetime(${t.replace("T"," ")}))`;
+    if(f) return `| where Timestamp >= datetime(${f.replace("T"," ")})`;
+    return `| where Timestamp > ago(7d)`;
+  }
+  return `| where Timestamp > ago(${mode})`;
+}
+
+/* ---------- filter clauses ---------- */
+function filterClauses(){
+  const out=[];
+  Object.keys(state.filters).forEach(field=>{
+    const f=state.filters[field]; if(!f||!f.val||!String(f.val).trim()) return;
+    const v=String(f.val).trim();
+    if(f.kind==="enum"){ out.push(`| where ${field} == "${esc(v)}"`); return; }
+    if(f.kind==="ip"){
+      if(f.op==="auto"){
+        if(v.includes("/")) out.push(`| where ipv4_is_in_subnet(${field}, "${esc(v)}")`);
+        else out.push(`| where ${field} == "${esc(v)}"`);
+      } else if(f.op==="contains"){ out.push(`| where ${field} contains "${esc(v)}"`); }
+      else out.push(`| where ${field} ${f.op} "${esc(v)}"`);
+      return;
+    }
+    // text
+    if(f.op==="in"){
+      const items=v.split(",").map(s=>`"${esc(s.trim())}"`).filter(s=>s!=='""').join(", ");
+      out.push(`| where ${field} in (${items})`);
+    } else if((f.op==="=="||f.op==="!=") && isNumeric(v)){
+      out.push(`| where ${field} ${f.op} ${v}`);
+    } else {
+      out.push(`| where ${field} ${f.op} "${esc(v)}"`);
+    }
+  });
+  return out;
+}
+
+/* ---------- assemble query ---------- */
+function buildQuery(){
+  const lines=[ state.source, timeClause(), ...filterClauses() ];
+  if($("optSummarize").checked){
+    const by=$("sumField").value;
+    lines.push(`| summarize Count = count() by ${by}`);
+    lines.push(`| sort by Count desc`);
+    return lines.join("\n");
+  }
+  const cols=SOURCES[state.source].columns.map(([n])=>n).filter(n=>state.cols[n]);
+  if(cols.length) lines.push(`| project ${cols.join(", ")}`);
+  if($("optSort").checked) lines.push(`| sort by Timestamp desc`);
+  const lim=parseInt($("optLimit").value||"0",10);
+  if(lim>0) lines.push(`| take ${lim}`);
+  return lines.join("\n");
+}
+
+/* ---------- syntax highlight (tokenizer) ---------- */
+const KW=new Set(["where","project","summarize","sort","order","by","take","top","extend","distinct","count","asc","desc","and","or","between","has","contains","startswith","endswith","in","limit","join","on"]);
+const FN=new Set(["ago","datetime","count","dcount","ipv4_is_in_subnet","ipv4_is_in_range","todatetime","tostring","bin","make_set","make_list"]);
+function hEsc(s){ return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
+function highlight(q){
+  const linesArr=q.split("\n");
+  return linesArr.map((line,idx)=>{
+    let out="", i=0;
+    while(i<line.length){
+      const ch=line[i];
+      if(ch==='"'){ // string literal
+        let j=i+1, buf='"';
+        while(j<line.length){ buf+=line[j]; if(line[j]==='"'&&line[j-1]!=="\\") {j++;break;} j++; }
+        out+=`<span class="k-str">${hEsc(buf)}</span>`; i=j; continue;
+      }
+      if(ch==="|"){ out+=`<span class="k-pipe">|</span>`; i++; continue; }
+      if(/[A-Za-z_]/.test(ch)){
+        let j=i, w="";
+        while(j<line.length && /[A-Za-z0-9_]/.test(line[j])){ w+=line[j]; j++; }
+        const lw=w.toLowerCase();
+        if(idx===0 && i===0){ out+=`<span class="k-table">${hEsc(w)}</span>`; }
+        else if(FN.has(lw) && line[j]==="("){ out+=`<span class="k-fn">${hEsc(w)}</span>`; }
+        else if(KW.has(lw)){ out+=`<span class="k-kw">${hEsc(w)}</span>`; }
+        else { out+=hEsc(w); }
+        i=j; continue;
+      }
+      if(/[0-9]/.test(ch)){
+        let j=i,n="";
+        while(j<line.length && /[0-9smhd]/.test(line[j])){ n+=line[j]; j++; }
+        out+=`<span class="k-num">${hEsc(n)}</span>`; i=j; continue;
+      }
+      if(/[=!<>.]/.test(ch)){ out+=`<span class="k-op">${hEsc(ch)}</span>`; i++; continue; }
+      out+=hEsc(ch); i++;
+    }
+    return out;
+  }).join("\n");
+}
+
+/* ---------- master render ---------- */
+let lastQuery="";
+function render(){
+  const q=buildQuery(); lastQuery=q;
+  $("query").innerHTML=highlight(q);
+  const n=q.split("\n").length;
+  $("lineCount").textContent=`${n} line${n>1?"s":""}`;
+}
+
+/* ---------- events ---------- */
+function wire(){
+  $("source").addEventListener("change",e=>{
+    state.source=e.target.value;
+    $("srcDesc").textContent=SOURCES[state.source].desc;
+    renderFilters(); renderColumns(true); render();
+  });
+
+  document.querySelectorAll('input[name="time"]').forEach(r=>{
+    r.addEventListener("change",()=>{
+      const v=r.value;
+      $("relBox").hidden = v!=="rel";
+      $("absBox").hidden = v!=="abs";
+      render();
+    });
+  });
+  ["relN","relUnit","absFrom","absTo","optLimit","sumField"].forEach(id=>{
+    $(id).addEventListener("input",render); $(id).addEventListener("change",render);
+  });
+  $("optSort").addEventListener("change",render);
+  $("optSummarize").addEventListener("change",e=>{ $("sumBox").hidden=!e.target.checked; render(); });
+
+  $("colAll").addEventListener("click",()=>{ SOURCES[state.source].columns.forEach(([n])=>state.cols[n]=true); renderColumns(false); render(); });
+  $("colNone").addEventListener("click",()=>{ Object.keys(state.cols).forEach(n=>state.cols[n]=false); renderColumns(false); render(); });
+  $("colReset").addEventListener("click",()=>{ renderColumns(true); render(); });
+
+  $("copyBtn").addEventListener("click",async()=>{
+    try{ await navigator.clipboard.writeText(lastQuery); }
+    catch(_){ const ta=document.createElement("textarea"); ta.value=lastQuery; document.body.appendChild(ta); ta.select(); document.execCommand("copy"); ta.remove(); }
+    const b=$("copyBtn"); const t=b.textContent; b.textContent="Copied ✓"; b.classList.add("copied");
+    setTimeout(()=>{ b.textContent=t; b.classList.remove("copied"); },1400);
+  });
+  $("resetBtn").addEventListener("click",()=>{
+    document.querySelector('input[name="time"][value="7d"]').checked=true;
+    $("relBox").hidden=true; $("absBox").hidden=true;
+    $("optSort").checked=true; $("optLimit").value=100;
+    $("optSummarize").checked=false; $("sumBox").hidden=true;
+    renderFilters(); renderColumns(true); render();
+  });
+}
+
+/* ---------- init ---------- */
+buildSources();
+$("srcDesc").textContent=SOURCES[state.source].desc;
+renderFilters();
+renderColumns(true);
+wire();
+render();
+</script>
+</body>
+</html>
