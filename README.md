@@ -21,6 +21,7 @@ Every table ships with a curated set of ~10–20 relevant columns pre-checked by
 - **12 Advanced Hunting tables**, grouped by domain (Endpoint / Identity / Email / Cloud / Alerts)
 - **Multi-cloud (Sentinel)**: `AzureActivity`, `GCPAuditLogs`, `AWSCloudTrail`, `SecurityAlert`, and `TriCloudActivity` (all three clouds in one shape)
 - **Starter hunts across all 3 clouds**: one click for permission changes, logging switched off, new VMs (crypto-mining watch), keys/secrets created, or everything that failed
+- **Cloud picker**: All 3 clouds, Azure only, Google Cloud only, or AWS only. It narrows any table view or starter hunt to that cloud
 - **Time scoping** — 1h / 24h / 7d / 30d chips, custom `ago(N unit)`, or an exact `between(datetime .. datetime)` window for incident timelines
 - **Schema-aware filters** — text fields get an operator dropdown (`contains`, `==`, `!=`, `has`, `startswith`, `endswith`, `in`), enum fields (ActionType, LogonType, Severity, DeliveryAction…) render as dropdowns of valid values
 - **IP handling** — CIDR input auto-generates `ipv4_is_in_subnet()`, single addresses use `==`
@@ -128,4 +129,8 @@ union isfuzzy=true
               Result = iff(isempty(ErrorCode), "Success", ErrorCode), SourceIp = SourceIpAddress)
 ```
 
-Then pick **Starter hunt (all 3 clouds)** in KQL Assist, copy, and paste into Sentinel > Logs.
+Then pick a **Starter hunt** in KQL Assist (and optionally a **Cloud** to narrow it to one), copy, and paste into Sentinel > Logs.
+
+**Two ways to look at one cloud:**
+- **Cloud picker** (e.g. "Google Cloud only"): uses `TriCloudActivity`, so the columns are the same simple ones for every cloud. Best for beginners and side-by-side comparisons.
+- **The cloud's own table** (`AzureActivity`, `GCPAuditLogs`, `AWSCloudTrail` in the Table list): every field that cloud records, in its own names. Best when you need detail the shared view drops.

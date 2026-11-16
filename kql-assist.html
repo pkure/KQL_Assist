@@ -197,8 +197,17 @@
               <select id="source"></select>
             </div>
             <div class="one">
-              <label class="fld" for="hunt">Starter hunt (all 3 clouds)</label>
-              <select id="hunt"><option value="">— optional: pick a cross-cloud hunt —</option></select>
+              <label class="fld" for="cloud">Cloud (Sentinel)</label>
+              <select id="cloud">
+                <option value="">All 3 clouds</option>
+                <option value="Azure">Azure only</option>
+                <option value="GCP">Google Cloud only</option>
+                <option value="AWS">AWS only</option>
+              </select>
+            </div>
+            <div class="one">
+              <label class="fld" for="hunt">Starter hunt (cloud activity)</label>
+              <select id="hunt"><option value="">— optional: pick a ready-made hunt —</option></select>
             </div>
           </div>
           <p class="src-desc" id="srcDesc"></p>
@@ -465,6 +474,10 @@ const HUNTS = [
   {name:"Everything that failed or was denied", failed:true}
 ];
 
+/* Friendly names in the Table dropdown, so it's clear which cloud each table holds. */
+const LABELS = {TriCloudActivity:"TriCloudActivity (all 3)", AzureActivity:"AzureActivity (Azure)",
+  GCPAuditLogs:"GCPAuditLogs (Google)", AWSCloudTrail:"AWSCloudTrail (AWS)", SecurityAlert:"SecurityAlert (all alerts)"};
+
 const CAT_ORDER = ["Endpoint","Identity","Email","Cloud","Alerts","Multi-cloud (Sentinel)"];
 
 /* ---------- state ---------- */
@@ -484,7 +497,7 @@ function buildSources(){
   CAT_ORDER.forEach(cat=>{
     const og = document.createElement("optgroup"); og.label = cat;
     Object.keys(SOURCES).filter(k=>SOURCES[k].cat===cat).forEach(k=>{
-      const o = document.createElement("option"); o.value=k; o.textContent=k; og.appendChild(o);
+      const o = document.createElement("option"); o.value=k; o.textContent=LABELS[k]||k; og.appendChild(o);
     });
     sel.appendChild(og);
   });
@@ -705,7 +718,7 @@ function wire(){
     document.querySelector('input[name="time"][value="7d"]').checked=true;
     $("relBox").hidden=true; $("absBox").hidden=true;
     $("optSort").checked=true; $("optLimit").value=100;
-    $("optSummarize").checked=false; $("sumBox").hidden=true;
+    $("optSummarize").checked=false; $("sumBox").hidden=true; $("cloud").value="";
     renderFilters(); renderColumns(true); render();
   });
 }
@@ -722,14 +735,35 @@ function buildHunts(){
     renderFilters(); renderColumns(true);
     if(h.regex){ ui.Action.op.value="matches regex"; ui.Action.inp.value=h.regex; ui.Action.upd(); }
     if(h.failed){ ui.Failed.sel.value="true"; state.filters.Failed={kind:"bool",val:"true"}; }
-    render();
+    applyCloud(); render();
   });
-  $("source").addEventListener("change",()=>{ sel.value=""; });
+  $("source").addEventListener("change",e=>{ sel.value=""; if(e.target.value!=="TriCloudActivity") $("cloud").value=""; });
+}
+
+/* ---------- cloud picker: narrows TriCloudActivity (and any starter hunt) to one cloud ---------- */
+function applyCloud(){
+  if(state.source!=="TriCloudActivity") return;
+  const c=$("cloud").value; ui.Cloud.sel.value=c; state.filters.Cloud={kind:"enum",val:c};
+}
+function buildCloud(){
+  $("cloud").addEventListener("change",()=>{
+    if(state.source!=="TriCloudActivity"){
+      state.source="TriCloudActivity"; $("source").value=state.source; $("hunt").value="";
+      $("srcDesc").textContent=SOURCES[state.source].desc;
+      renderFilters(); renderColumns(true);
+    }
+    applyCloud(); render();
+  });
+  // keep the top picker in step when someone changes the Cloud filter row by hand
+  $("filters").addEventListener("change",()=>{
+    if(state.source==="TriCloudActivity") $("cloud").value=(state.filters.Cloud||{}).val||"";
+  });
 }
 
 /* ---------- init ---------- */
 buildSources();
 buildHunts();
+buildCloud();
 $("srcDesc").textContent=SOURCES[state.source].desc;
 renderFilters();
 renderColumns(true);
