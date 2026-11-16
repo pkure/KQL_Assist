@@ -196,6 +196,10 @@
               <label class="fld" for="source">Table</label>
               <select id="source"></select>
             </div>
+            <div class="one">
+              <label class="fld" for="hunt">Starter hunt (all 3 clouds)</label>
+              <select id="hunt"><option value="">— optional: pick a cross-cloud hunt —</option></select>
+            </div>
           </div>
           <p class="src-desc" id="srcDesc"></p>
         </div>
@@ -278,7 +282,7 @@
           <button class="btn ghost" id="resetBtn" type="button">Reset</button>
         </div>
       </div>
-      <p class="portal-tip">Paste into <strong>Defender → Hunting → Advanced hunting</strong> (or Sentinel Logs). Timestamps are <code>UTC</code>. Adjust generated <code>ago()</code> / <code>take</code> as needed.</p>
+      <p class="portal-tip">Paste into <strong>Defender → Hunting → Advanced hunting</strong>, or for the <strong>Multi-cloud (Sentinel)</strong> tables into <strong>Sentinel → Logs</strong>. Timestamps are <code>UTC</code>. Adjust generated <code>ago()</code> / <code>take</code> as needed.</p>
     </div>
   </div>
 </div>
@@ -290,7 +294,7 @@
    Each source: filters [{field, label?, kind:'text'|'enum'|'ip', enum:[...] }]
    columns: [{n:name, d:defaultChecked}]
    Common text operators apply to kind:'text'. */
-const TEXT_OPS = ["contains","==","!=","has","startswith","endswith","in"];
+const TEXT_OPS = ["contains","==","!=","has","startswith","endswith","in","matches regex"];
 
 const SOURCES = {
   DeviceLogonEvents:{cat:"Endpoint", desc:"Sign-ins observed on devices (interactive, network, RDP, service). Best for lateral-movement, brute-force and suspicious-logon hunts.",
@@ -401,13 +405,73 @@ const SOURCES = {
       {field:"Category",kind:"text"},{field:"ServiceSource",kind:"text"},
       {field:"DetectionSource",kind:"text"}
     ],
-    columns:[["Timestamp",1],["AlertId",1],["Title",1],["Severity",1],["Category",1],["ServiceSource",1],["DetectionSource",1],["AttackTechniques",1]]}
+    columns:[["Timestamp",1],["AlertId",1],["Title",1],["Severity",1],["Category",1],["ServiceSource",1],["DetectionSource",1],["AttackTechniques",1]]},
+
+  /* ---------- Multi-cloud (Microsoft Sentinel / Log Analytics) ----------
+     These tables use TimeGenerated (not Timestamp). Fields with expr: read a nested value (e.g. GCP's caller IP). */
+  TriCloudActivity:{cat:"Multi-cloud (Sentinel)", time:"TimeGenerated", desc:"One view of Azure, Google Cloud and AWS activity: who did what, to what, from where, and whether it worked. A workspace function (setup in the README) over AzureActivity + GCPAuditLogs + AWSCloudTrail.",
+    filters:[
+      {field:"Cloud",kind:"enum",enum:["Azure","GCP","AWS"]},
+      {field:"Actor",kind:"text"},{field:"Action",kind:"text"},{field:"Target",kind:"text"},
+      {field:"Failed",kind:"bool"},{field:"SourceIp",kind:"ip"}
+    ],
+    columns:[["TimeGenerated",1],["Cloud",1],["Actor",1],["Action",1],["Target",1],["Result",1],["Failed",1],["SourceIp",1]]},
+
+  AzureActivity:{cat:"Multi-cloud (Sentinel)", time:"TimeGenerated", desc:"Azure control-plane activity (who created, changed or deleted what in the subscription). Tip: Azure logs each action twice (Start, then the outcome); filter ActivityStatusValue to Success/Failure.",
+    filters:[
+      {field:"Caller",kind:"text"},{field:"OperationNameValue",kind:"text"},
+      {field:"ActivityStatusValue",kind:"enum",enum:["Success","Failure","Start","Accept"]},
+      {field:"CategoryValue",kind:"enum",enum:["Administrative","Security","Policy","ServiceHealth","Alert","Recommendation","Autoscale","ResourceHealth"]},
+      {field:"ResourceGroup",kind:"text"},{field:"CallerIpAddress",kind:"ip"}
+    ],
+    columns:[["TimeGenerated",1],["Caller",1],["OperationNameValue",1],["ActivityStatusValue",1],["ResourceGroup",1],["_ResourceId",1],["CallerIpAddress",1],["CategoryValue",0],["SubscriptionId",0],["CorrelationId",0]]},
+
+  GCPAuditLogs:{cat:"Multi-cloud (Sentinel)", time:"TimeGenerated", desc:"Google Cloud audit logs routed to Sentinel (Pub/Sub connector): admin activity across projects. MethodName is the API call, e.g. SetIamPolicy or google.iam.admin.v1.CreateServiceAccountKey.",
+    filters:[
+      {field:"PrincipalEmail",kind:"text"},{field:"MethodName",kind:"text"},
+      {field:"ServiceName",kind:"text"},{field:"ProjectId",kind:"text"},
+      {field:"GCPResourceType",kind:"text"},
+      {field:"Severity",kind:"enum",enum:["INFO","NOTICE","WARNING","ERROR","CRITICAL"]},
+      {field:"CallerIp",kind:"ip",expr:"tostring(parse_json(tostring(RequestMetadata)).callerIp)"},
+      {field:"StatusCode",kind:"text",expr:"tostring(parse_json(tostring(Status)).code)"}
+    ],
+    columns:[["TimeGenerated",1],["PrincipalEmail",1],["MethodName",1],["ServiceName",1],["ProjectId",1],["GCPResourceName",1],["CallerIp",1,"tostring(parse_json(tostring(RequestMetadata)).callerIp)"],["StatusCode",1,"tostring(parse_json(tostring(Status)).code)"],["StatusMessage",0],["GCPResourceType",0],["Severity",0],["LogName",0]]},
+
+  AWSCloudTrail:{cat:"Multi-cloud (Sentinel)", time:"TimeGenerated", desc:"AWS API activity from CloudTrail (S3/SQS connector). EventSource is the service (iam.amazonaws.com), EventName the call (CreateAccessKey). ErrorCode is set when the call was denied or failed.",
+    filters:[
+      {field:"EventName",kind:"text"},{field:"EventSource",kind:"text"},
+      {field:"UserIdentityArn",kind:"text"},
+      {field:"UserIdentityType",kind:"enum",enum:["Root","IAMUser","AssumedRole","AWSService","FederatedUser","AWSAccount"]},
+      {field:"SourceIpAddress",kind:"ip"},{field:"AWSRegion",kind:"text"},
+      {field:"ErrorCode",kind:"text"},{field:"RecipientAccountId",kind:"text"}
+    ],
+    columns:[["TimeGenerated",1],["EventName",1],["EventSource",1],["UserIdentityType",1],["UserIdentityArn",1],["SourceIpAddress",1],["AWSRegion",1],["ErrorCode",1],["ErrorMessage",0],["RecipientAccountId",0],["UserAgent",0],["RequestParameters",0]]},
+
+  SecurityAlert:{cat:"Multi-cloud (Sentinel)", time:"TimeGenerated", desc:"Alerts in Sentinel from every connected product, including Defender for Cloud alerts about Azure, AWS and GCP resources.",
+    filters:[
+      {field:"AlertName",kind:"text"},
+      {field:"AlertSeverity",kind:"enum",enum:["Informational","Low","Medium","High"]},
+      {field:"ProductName",kind:"text"},{field:"CompromisedEntity",kind:"text"},{field:"Tactics",kind:"text"}
+    ],
+    columns:[["TimeGenerated",1],["AlertName",1],["AlertSeverity",1],["ProductName",1],["CompromisedEntity",1],["Tactics",1],["Description",0],["SystemAlertId",0]]}
 };
 
-const CAT_ORDER = ["Endpoint","Identity","Email","Cloud","Alerts"];
+/* Starter hunts: one click loads TriCloudActivity with a ready-made Action regex (all three clouds at once). */
+const HUNTS = [
+  {name:"Permission and identity changes", regex:"(?i)(roleassignments/(write|delete)|roledefinitions/write|SetIamPolicy|CreateServiceAccount$|iam\\.amazonaws\\.com:(Attach\\w*Policy|Put\\w*Policy|CreateUser|CreateLoginProfile|UpdateAssumeRolePolicy))"},
+  {name:"Logging or monitoring switched off", regex:"(?i)(diagnosticsettings/delete|workspaces/delete|DeleteSink|UpdateSink|DeleteLog$|cloudtrail\\.amazonaws\\.com:(StopLogging|DeleteTrail|UpdateTrail|PutEventSelectors)|guardduty\\.amazonaws\\.com:(DeleteDetector|UpdateDetector))"},
+  {name:"New virtual machines (crypto-mining watch)", regex:"(?i)(microsoft\\.compute/virtualmachines/write|compute\\.instances\\.insert|ec2\\.amazonaws\\.com:RunInstances)"},
+  {name:"Keys and secrets created or pulled", regex:"(?i)(storageaccounts/listkeys/action|vaults/secrets/(write|read)|CreateServiceAccountKey|iam\\.amazonaws\\.com:CreateAccessKey|secretsmanager\\.amazonaws\\.com:GetSecretValue)"},
+  {name:"Everything that failed or was denied", failed:true}
+];
+
+const CAT_ORDER = ["Endpoint","Identity","Email","Cloud","Alerts","Multi-cloud (Sentinel)"];
 
 /* ---------- state ---------- */
 let state = { source:"DeviceLogonEvents", filters:{}, cols:{} };
+let ui = {};   // field -> its filter widgets, so a starter hunt can fill them in
+const timeCol = () => SOURCES[state.source].time || "Timestamp";
+const fieldDef = f => SOURCES[state.source].filters.find(x=>x.field===f) || {};
 
 /* ---------- helpers ---------- */
 const $ = id => document.getElementById(id);
@@ -429,19 +493,25 @@ function buildSources(){
 
 /* ---------- render filters for current source ---------- */
 function renderFilters(){
-  const host = $("filters"); host.innerHTML=""; state.filters={};
+  const host = $("filters"); host.innerHTML=""; state.filters={}; ui={};
   const src = SOURCES[state.source];
   src.filters.forEach((f,i)=>{
     const row = document.createElement("div");
     const name = document.createElement("span"); name.className="fname"; name.textContent=f.field;
 
-    if(f.kind==="enum"){
+    if(f.kind==="bool"){
+      row.className="filter-row enum";
+      const sel=document.createElement("select");
+      [["","— any —"],["true","true"],["false","false"]].forEach(([v,t])=>{ const o=document.createElement("option"); o.value=v; o.textContent=t; sel.appendChild(o); });
+      sel.addEventListener("change",()=>{ state.filters[f.field]={kind:"bool",val:sel.value}; render(); });
+      ui[f.field]={sel}; row.append(name, sel);
+    } else if(f.kind==="enum"){
       row.className="filter-row enum";
       const sel = document.createElement("select");
       const blank=document.createElement("option"); blank.value=""; blank.textContent="— any —"; sel.appendChild(blank);
       f.enum.forEach(v=>{ const o=document.createElement("option"); o.value=v; o.textContent=v; sel.appendChild(o); });
       sel.addEventListener("change",()=>{ state.filters[f.field]={kind:"enum",val:sel.value}; render(); });
-      row.append(name, sel);
+      ui[f.field]={sel}; row.append(name, sel);
     } else if(f.kind==="ip"){
       row.className="filter-row";
       const op=document.createElement("select"); op.className="op";
@@ -449,7 +519,7 @@ function renderFilters(){
       const inp=document.createElement("input"); inp.type="text"; inp.placeholder="10.0.0.0/24 or 1.2.3.4";
       const upd=()=>{ state.filters[f.field]={kind:"ip",op:op.value,val:inp.value}; render(); };
       op.addEventListener("change",upd); inp.addEventListener("input",upd);
-      row.append(name, op, inp);
+      ui[f.field]={op,inp,upd}; row.append(name, op, inp);
     } else {
       row.className="filter-row";
       const op=document.createElement("select"); op.className="op";
@@ -459,7 +529,7 @@ function renderFilters(){
       inp.placeholder = f.field.toLowerCase().includes("command")||f.field==="Subject" ? "text to match…" : "value…";
       const upd=()=>{ state.filters[f.field]={kind:"text",op:op.value,val:inp.value}; render(); };
       op.addEventListener("change",upd); inp.addEventListener("input",upd);
-      row.append(name, op, inp);
+      ui[f.field]={op,inp,upd}; row.append(name, op, inp);
     }
     host.appendChild(row);
   });
@@ -479,7 +549,7 @@ function renderColumns(useDefaults){
   });
   // summarize field options
   const sf=$("sumField"); sf.innerHTML="";
-  src.columns.forEach(([n])=>{ if(n==="Timestamp")return; const o=document.createElement("option"); o.value=n;o.textContent=n; sf.appendChild(o); });
+  src.columns.forEach(([n])=>{ if(n===timeCol())return; const o=document.createElement("option"); o.value=n;o.textContent=n; sf.appendChild(o); });
 }
 
 /* ---------- time clause ---------- */
@@ -487,15 +557,15 @@ function timeClause(){
   const mode=document.querySelector('input[name="time"]:checked').value;
   if(mode==="rel"){
     const n=Math.max(1,parseInt($("relN").value||"1",10)); const u=$("relUnit").value;
-    return `| where Timestamp > ago(${n}${u})`;
+    return `| where ${timeCol()} > ago(${n}${u})`;
   }
   if(mode==="abs"){
     const f=$("absFrom").value, t=$("absTo").value;
-    if(f&&t) return `| where Timestamp between (datetime(${f.replace("T"," ")}) .. datetime(${t.replace("T"," ")}))`;
-    if(f) return `| where Timestamp >= datetime(${f.replace("T"," ")})`;
-    return `| where Timestamp > ago(7d)`;
+    if(f&&t) return `| where ${timeCol()} between (datetime(${f.replace("T"," ")}) .. datetime(${t.replace("T"," ")}))`;
+    if(f) return `| where ${timeCol()} >= datetime(${f.replace("T"," ")})`;
+    return `| where ${timeCol()} > ago(7d)`;
   }
-  return `| where Timestamp > ago(${mode})`;
+  return `| where ${timeCol()} > ago(${mode})`;
 }
 
 /* ---------- filter clauses ---------- */
@@ -504,10 +574,13 @@ function filterClauses(){
   Object.keys(state.filters).forEach(field=>{
     const f=state.filters[field]; if(!f||!f.val||!String(f.val).trim()) return;
     const v=String(f.val).trim();
-    if(f.kind==="enum"){ out.push(`| where ${field} == "${esc(v)}"`); return; }
+    const col=fieldDef(field).expr || field;   // nested value (e.g. GCP caller IP) or the plain column
+    if(f.kind==="bool"){ out.push(`| where ${col} == ${v==="true"}`); return; }
+    if(f.kind==="enum"){ out.push(`| where ${col} == "${esc(v)}"`); return; }
+    field=col;
     if(f.kind==="ip"){
       if(f.op==="auto"){
-        if(v.includes("/")) out.push(`| where ipv4_is_in_subnet(${field}, "${esc(v)}")`);
+        if(v.includes("/")) out.push(`| where ipv4_is_in_range(${field}, "${esc(v)}")`);   // works in both Defender Advanced Hunting and Sentinel (ipv4_is_in_subnet is Defender-only)
         else out.push(`| where ${field} == "${esc(v)}"`);
       } else if(f.op==="contains"){ out.push(`| where ${field} contains "${esc(v)}"`); }
       else out.push(`| where ${field} ${f.op} "${esc(v)}"`);
@@ -519,6 +592,8 @@ function filterClauses(){
       out.push(`| where ${field} in (${items})`);
     } else if((f.op==="=="||f.op==="!=") && isNumeric(v)){
       out.push(`| where ${field} ${f.op} ${v}`);
+    } else if(f.op==="matches regex"){
+      out.push(`| where ${field} matches regex @"${v.replace(/"/g,'""')}"`);   // verbatim string: backslashes stay as typed
     } else {
       out.push(`| where ${field} ${f.op} "${esc(v)}"`);
     }
@@ -531,20 +606,24 @@ function buildQuery(){
   const lines=[ state.source, timeClause(), ...filterClauses() ];
   if($("optSummarize").checked){
     const by=$("sumField").value;
-    lines.push(`| summarize Count = count() by ${by}`);
+    const c=SOURCES[state.source].columns.find(x=>x[0]===by);
+    lines.push(`| summarize Count = count() by ${c&&c[2] ? `${by} = ${c[2]}` : by}`);
     lines.push(`| sort by Count desc`);
     return lines.join("\n");
   }
-  const cols=SOURCES[state.source].columns.map(([n])=>n).filter(n=>state.cols[n]);
+  const defs=SOURCES[state.source].columns.filter(([n])=>state.cols[n]);
+  const computed=defs.filter(c=>c[2]).map(([n,,e])=>`${n} = ${e}`);
+  if(computed.length) lines.push(`| extend ${computed.join(", ")}`);
+  const cols=defs.map(([n])=>n);
   if(cols.length) lines.push(`| project ${cols.join(", ")}`);
-  if($("optSort").checked) lines.push(`| sort by Timestamp desc`);
+  if($("optSort").checked) lines.push(`| sort by ${cols.includes(timeCol())||!cols.length ? timeCol() : cols[0]} desc`);
   const lim=parseInt($("optLimit").value||"0",10);
   if(lim>0) lines.push(`| take ${lim}`);
   return lines.join("\n");
 }
 
 /* ---------- syntax highlight (tokenizer) ---------- */
-const KW=new Set(["where","project","summarize","sort","order","by","take","top","extend","distinct","count","asc","desc","and","or","between","has","contains","startswith","endswith","in","limit","join","on"]);
+const KW=new Set(["matches","regex","extend","where","project","summarize","sort","order","by","take","top","extend","distinct","count","asc","desc","and","or","between","has","contains","startswith","endswith","in","limit","join","on"]);
 const FN=new Set(["ago","datetime","count","dcount","ipv4_is_in_subnet","ipv4_is_in_range","todatetime","tostring","bin","make_set","make_list"]);
 function hEsc(s){ return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
 function highlight(q){
@@ -631,8 +710,26 @@ function wire(){
   });
 }
 
+/* ---------- starter hunts (multi-cloud) ---------- */
+function buildHunts(){
+  const sel=$("hunt"); if(!sel) return;
+  HUNTS.forEach((h,i)=>{ const o=document.createElement("option"); o.value=i; o.textContent=h.name; sel.appendChild(o); });
+  sel.addEventListener("change",()=>{
+    if(sel.value==="") return;
+    const h=HUNTS[+sel.value];
+    state.source="TriCloudActivity"; $("source").value=state.source;
+    $("srcDesc").textContent=SOURCES[state.source].desc;
+    renderFilters(); renderColumns(true);
+    if(h.regex){ ui.Action.op.value="matches regex"; ui.Action.inp.value=h.regex; ui.Action.upd(); }
+    if(h.failed){ ui.Failed.sel.value="true"; state.filters.Failed={kind:"bool",val:"true"}; }
+    render();
+  });
+  $("source").addEventListener("change",()=>{ sel.value=""; });
+}
+
 /* ---------- init ---------- */
 buildSources();
+buildHunts();
 $("srcDesc").textContent=SOURCES[state.source].desc;
 renderFilters();
 renderColumns(true);
